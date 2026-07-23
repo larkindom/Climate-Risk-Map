@@ -1,0 +1,9 @@
+# Local-only profile — invoke dbt with `--profiles-dir .` from this
+# directory so this project never touches ~/.dbt/profiles.yml.
+climate_risk_pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: warehouse.duckdb
+      threads: 4

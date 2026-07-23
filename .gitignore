@@ -1,7 +1,15 @@
 node_modules
 dist
-scripts/.cache
 .env
 .env.local
 *.local
 .DS_Store
+
+# data pipeline
+data-pipeline/.venv
+data-pipeline/.cache
+data-pipeline/warehouse.duckdb
+data-pipeline/target
+data-pipeline/logs
+data-pipeline/dbt_packages
+data-pipeline/.user.yml

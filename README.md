@@ -16,20 +16,20 @@ watch.
 
 ## Data sources
 
-Two free, no-key datasets, joined by county (FIPS):
+Three free, keyless datasets, joined by county (FIPS):
 
 | Dataset | Source | Role |
 | --- | --- | --- |
-| National Risk Index (Counties) | FEMA, live ArcGIS Feature Service (`services.arcgis.com/.../National_Risk_Index_Counties/FeatureServer/0`) | County polygon, population, and per-hazard risk fields for flood, wildfire, heat wave, and hurricane |
+| National Risk Index (Counties) | FEMA, live ArcGIS Feature Service (`services.arcgis.com/.../National_Risk_Index_Counties/FeatureServer/0`) | County polygon, population, and per-hazard *projected* risk fields for flood, wildfire, heat wave, and hurricane |
 | County Market Tracker | Redfin Data Center, public S3 (`redfin-public-data.s3-us-west-2.amazonaws.com/redfin_market_tracker/county_market_tracker.tsv000.gz`) | Monthly median sale price, YoY change, price/sqft, inventory, and days on market, all residential property types |
+| NFIP Claims | OpenFEMA, live REST API (`www.fema.gov/api/open/v2/FimaNfipClaims`) | Individual flood-insurance claim records — actual *realized* flood losses, to compare against FEMA NRI's projections |
 
-Both were queried/downloaded live and field-checked while building this —
-see `scripts/build_data.py`, which fetches FEMA's data by county FIPS and
-streams/filters the ~230MB Redfin file (cached locally after the first run,
-gitignored) down to just the 20 target counties. Its output is a single
-static `public/data/counties.geojson`, checked in, so the deployed app makes
-no live API calls itself. Rerun `python3 scripts/build_data.py` to refresh
-the housing figures without touching the frontend.
+All three were queried/downloaded live and field-checked while building
+this. **A fourth source, Census ACS county income data, was evaluated and
+dropped** — its bulk county API now requires a signup-gated key, which
+isn't something a pipeline can self-serve. NFIP claims were chosen instead:
+still keyless, and thematically sharper (realized losses vs. projected
+risk, not just another demographic column).
 
 **Zillow and Redfin's per-listing APIs are not publicly available** (Zillow's
 is enterprise-only, Redfin has none) — this is why the project works at
@@ -40,9 +40,67 @@ of individual properties.
 Louisiana counties are legally "parishes" (`"Orleans Parish, LA"`, not
 `"Orleans County, LA"`) and D.C. has neither (`"District of Columbia, DC"`)
 — both would break a name derived programmatically from the county name.
-Every target county is instead matched by its exact Redfin region string,
-verified against a live download — see `TARGET_COUNTIES` in
-`scripts/build_data.py`.
+Every target county is instead matched by its exact Redfin region string
+via the `data-pipeline/seeds/target_counties.csv` seed, verified against a
+live download.
+
+## Data pipeline
+
+`data-pipeline/` is a small bronze → silver → gold ELT pipeline (DuckDB +
+dbt), not a single fetch script — the point being that a join across three
+sources should be inspectable and tested, not "trust me it worked."
+
+```
+data-pipeline/
+├── extract/                 # bronze: dumb fetch-and-cache, zero transformation
+│   ├── fetch_fema_nri.py    # → .cache/fema_nri.geojson
+│   └── fetch_nfip_claims.py # → .cache/nfip_claims.json (paginated, ~32 requests)
+├── seeds/target_counties.csv  # FIPS ↔ Redfin region name ↔ display label
+├── models/
+│   ├── staging/       # one model per source, cast/rename only
+│   ├── intermediate/  # per-source aggregation (this is the actual silver-layer work)
+│   └── marts/         # counties_gold — the final joined, one-row-per-county table
+├── tests/              # + models/marts/schema.yml
+└── export/export_geojson.py  # counties_gold -> public/data/counties.geojson
+```
+
+Redfin needs no extractor at all — DuckDB reads the cached `.tsv.gz`
+directly via `read_csv()`, so the bronze layer for that source is just the
+cached file itself. FEMA and NFIP need Python because they're paginated
+JSON APIs, but those scripts only fetch and cache raw responses; every cast,
+join, and aggregation happens afterward in SQL.
+
+The actual transformation work lives in `models/intermediate/`:
+`int_nfip_claims_by_county.sql` aggregates 316,316 raw claim records down to
+one summary row per county (claim count, total paid, per-capita), and
+`int_redfin_latest_by_county.sql` replaces what used to be a Python loop
+("keep the trailing 60 months") with a window function and an `array_agg`.
+
+**Tests** (`dbt test`, 9 checks) are the actual data-quality guarantee behind
+the join, not just documentation: `unique`/`not_null` on the county FIPS key,
+`not_null` on the hazard and NFIP-claim-count columns (a null claim count
+would mean a target county silently matched zero NFIP records — worth
+flagging, not defaulting to zero), and a singular test asserting
+`counties_gold` has exactly 20 rows, which is what would actually catch a
+county getting dropped by one of the joins.
+
+Run it:
+
+```bash
+cd data-pipeline
+python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+python3 extract/fetch_fema_nri.py
+python3 extract/fetch_nfip_claims.py
+dbt seed --profiles-dir .
+dbt run --profiles-dir .
+dbt test --profiles-dir .
+python3 export/export_geojson.py   # regenerates ../public/data/counties.geojson
+```
+
+`profiles.yml` lives inside `data-pipeline/` and is only ever invoked with
+`--profiles-dir .`, so this project never touches `~/.dbt/profiles.yml`.
+`dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir .`
+brings up the live lineage graph and column-level docs for all six models.
 
 ## Counties
 
@@ -65,8 +123,9 @@ isn't cherry-picked toward disaster-prone metros:
 
 Where a metro spans multiple counties (e.g. Dallas–Fort Worth, Riverside–San
 Bernardino), the single most populous or principal-city county stands in for
-the metro. Adding more counties is a one-line change per entry in
-`TARGET_COUNTIES` (`scripts/build_data.py`) plus a rerun of the pipeline.
+the metro. Adding more counties is a one-line row in
+`data-pipeline/seeds/target_counties.csv` plus the matching FIPS in each
+`extract/*.py` script's target list, then a rerun of the pipeline.
 
 ## Climate Risk Score
 
@@ -126,12 +185,13 @@ select the same county and open its detail panel.
 
 ```bash
 npm install
-python3 scripts/build_data.py   # regenerates public/data/counties.geojson
 npm run dev
 ```
 
-No env vars, no API keys. The Python step (`scripts/build_data.py`) uses
-only the standard library (`urllib`, `gzip`, `csv`) — no pip install needed.
+`public/data/counties.geojson` is checked in, so the frontend runs standalone
+without needing the pipeline. To regenerate it (refresh housing figures,
+add a county, etc.), run the full sequence in **Data pipeline** above. No
+env vars or API keys anywhere in this project.
 
 ## Deploy to GitHub Pages
 

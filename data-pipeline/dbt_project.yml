@@ -1,0 +1,25 @@
+name: climate_risk_pipeline
+version: "1.0.0"
+config-version: 2
+profile: climate_risk_pipeline
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  climate_risk_pipeline:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table
+
+seeds:
+  climate_risk_pipeline:
+    target_counties:
+      # Leading zeros in FIPS codes (e.g. 04013) get silently dropped if
+      # this column type-infers to an integer.
+      +column_types:
+        stcofips: varchar

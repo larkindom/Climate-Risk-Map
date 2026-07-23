@@ -129,6 +129,32 @@ export default function Sidebar({ county, onClose }) {
       </div>
 
       <div className="mt-4 border-t border-neutral-800 pt-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          Historical flood losses (NFIP)
+        </h3>
+        {typeof county.nfip_claims_count === 'number' ? (
+          <>
+            <p className="mt-1 text-xs text-neutral-500">
+              Realized losses, {county.nfip_earliest_year}–{county.nfip_latest_year} — compare against the
+              Flood row above, which is FEMA's *projected* risk.
+            </p>
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+              <Field label="Claims filed" value={county.nfip_claims_count.toLocaleString()} />
+              <Field label="Total paid out" value={fmtUSD(county.nfip_total_paid)} />
+              <Field label="Avg. claim paid" value={fmtUSD(county.nfip_avg_claim_paid)} />
+              <Field label="Paid per capita" value={fmtUSD(county.nfip_paid_per_capita)} />
+            </dl>
+            <p className="mt-2 text-xs text-neutral-500">
+              Covers only NFIP flood-insurance policyholders, not all flood damage — a lower number can mean
+              lower flood losses, or just lower insurance uptake in that county.
+            </p>
+          </>
+        ) : (
+          <p className="mt-1 text-sm text-neutral-500">No NFIP claims matched for this county.</p>
+        )}
+      </div>
+
+      <div className="mt-4 border-t border-neutral-800 pt-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Data sources</h3>
         <ul className="mt-2 space-y-1.5 text-xs text-neutral-400">
           <li>
@@ -144,6 +170,10 @@ export default function Sidebar({ county, onClose }) {
             average of each applicable hazard's annualized loss rate percentile (flood 30%, wildfire 25%, heat
             wave 25%, hurricane 20%); hazards with no meaningful exposure for a county are excluded from the
             average rather than counted as zero.
+          </li>
+          <li>
+            <span className="text-neutral-300">Historical flood losses</span> — OpenFEMA's NFIP claims
+            dataset, aggregated per county from individual claim records.
           </li>
         </ul>
       </div>

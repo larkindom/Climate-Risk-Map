@@ -1,0 +1,38 @@
+version: 2
+
+models:
+  - name: counties_gold
+    description: >
+      One row per target county, joining FEMA National Risk Index hazard
+      data, Redfin housing market data, and OpenFEMA NFIP claims history.
+      The tests below are the actual data-quality guarantee that the joins
+      above didn't silently drop or duplicate a county.
+    columns:
+      - name: STCOFIPS
+        description: 5-digit state+county FIPS code, the join key across all three sources.
+        tests:
+          - unique
+          - not_null
+      - name: COUNTY
+        tests:
+          - not_null
+      - name: POPULATION
+        tests:
+          - not_null
+      - name: geometry_json
+        description: County polygon geometry from FEMA NRI, carried through as raw GeoJSON text.
+        tests:
+          - not_null
+      - name: WFIR_RISKS
+        tests:
+          - not_null
+      - name: HWAV_RISKS
+        tests:
+          - not_null
+      - name: nfip_claims_count
+        description: >
+          Null would mean a target county matched zero NFIP claims — worth
+          flagging rather than silently treating as zero, since it could
+          also mean the county FIPS filter in fetch_nfip_claims.py is wrong.
+        tests:
+          - not_null
