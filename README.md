@@ -141,5 +141,5 @@ npm run deploy
 
 Builds and pushes `dist/` to the `gh-pages` branch (via the `gh-pages`
 package). Enable Pages on that branch in the repo's Settings → Pages. The
-Vite `base` path in `vite.config.js` is set to `/climate-risk-housing-map/`
+Vite `base` path in `vite.config.js` is set to `/Climate-Risk-Map/`
 to match this repo's GitHub Pages URL.
